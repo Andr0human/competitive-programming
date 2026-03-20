@@ -17,7 +17,7 @@
 #include <utility>
 #include <random>
 
-#define perf_clock std::chrono::_V2::high_resolution_clock::time_point
+#define perf_clock std::chrono::high_resolution_clock::time_point
 #define perf_time std::chrono::duration<double>
 #define perf_ms_time std::chrono::duration<double, std::milli>
 #define perf_ns_time std::chrono::duration<double, std::nano>
