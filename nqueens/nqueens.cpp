@@ -1,6 +1,6 @@
 
 #include <iostream>
-#include "lib/perf.h"
+#include "../lib/perf.h"
 
 // nqueen problem
 
