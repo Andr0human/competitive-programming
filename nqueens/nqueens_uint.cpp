@@ -1,12 +1,12 @@
 #include <cassert>
 #include <iostream>
-#include "lib/UInt.h"
-#include "lib/perf.h"
+#include "../lib/UInt.h"
+#include "../lib/perf.h"
 
-constexpr int MAX_N = 16;
-constexpr int ALLOTED_BITS = 256;
+constexpr int MAX_N = 20;
+constexpr int ALLOTED_BITS = MAX_N * MAX_N;
 
-std::array<UInt<ALLOTED_BITS>, MAX_N * MAX_N> computed_masks;
+std::array<UInt<ALLOTED_BITS>, ALLOTED_BITS> computed_masks;
 
 void precompute_masks(const int n) {
   for (int row = 0; row < n; row++) {
@@ -50,7 +50,6 @@ int nqueens_uint(int row, UInt<ALLOTED_BITS> board, int n) {
 
 
 int main() {
-  static_assert(ALLOTED_BITS >= MAX_N * MAX_N, "ALLOTED_BITS must be greater than or equal to MAX_N * MAX_N");
   int n;
   std::cin >> n;
   assert(n <= MAX_N);

@@ -6,10 +6,8 @@
 
 template <int N>
 class UInt {
-  static_assert(N > 0 && N % 64 == 0, "N must be a positive multiple of 64");
-
  public:
-  static constexpr int num_blocks = N / 64;
+  static constexpr int num_blocks = (N + 63) / 64;
 
   UInt() : digits_{} {}
 
@@ -50,7 +48,12 @@ class UInt {
 
   UInt operator~() const {
     UInt r;
-    for (int i = 0; i < num_blocks; ++i) r.digits_[i] = ~digits_[i];
+    for (int i = 0; i < num_blocks - 1; ++i) r.digits_[i] = ~digits_[i];
+
+    constexpr int top_bits = N & 63;
+    constexpr uint64_t top_mask = (top_bits == 0) ? UINT64_MAX : ((1ULL << top_bits) - 1);
+    r.digits_[num_blocks - 1] = ~digits_[num_blocks - 1] & top_mask;
+
     return r;
   }
 
@@ -64,32 +67,57 @@ class UInt {
 
   UInt& operator<<=(int s) {
     if (s <= 0) return *this;
-    const int block_shift = s / 64;
-    const int bit_shift = s % 64;
-    for (int i = num_blocks - 1; i >= block_shift; --i) {
-      digits_[i] = digits_[i - block_shift] << bit_shift;
+    const int block_shift = s >> 6;
+    const int bit_shift = s & 63;
+    const int carry_shift = 64 - bit_shift;
+
+    if (block_shift >= num_blocks) {
+      digits_.fill(0);
+      return *this;
     }
-    for (int i = block_shift - 1; i >= 0; --i) {
+
+    if (bit_shift == 0) {
+      for (int i = num_blocks - 1; i >= block_shift; --i)
+        digits_[i] = digits_[i - block_shift];
+    } else {
+      for (int i = num_blocks - 1; i > block_shift; --i)
+        digits_[i] = (digits_[i - block_shift] << bit_shift) |
+                     (digits_[i - block_shift - 1] >> carry_shift);
+      digits_[block_shift] = digits_[0] << bit_shift;
+    }
+
+    for (int i = 0; i < block_shift; ++i)
       digits_[i] = 0;
-    }
+
     return *this;
   }
 
   UInt& operator>>=(int s) {
     if (s <= 0) return *this;
-    const int block_shift = s / 64;
-    const int bit_shift = s % 64;
+    const int block_shift = s >> 6;
+    const int bit_shift = s & 63;
+
     if (block_shift >= num_blocks) {
       digits_.fill(0);
       return *this;
     }
-    for (int i = num_blocks - 1; i >= 0; --i) {
-      int src = i + block_shift;
-      digits_[i] = (src < num_blocks ? digits_[src] >> bit_shift : 0) |
-                   (bit_shift != 0 && src > 0
-                        ? digits_[src - 1] << (64 - bit_shift)
-                        : 0);
+
+    const int last = num_blocks - 1 - block_shift;
+    const int carry_shift = 64 - bit_shift;
+
+    if (bit_shift == 0) {
+      for (int i = 0; i <= last; ++i)
+        digits_[i] = digits_[i + block_shift];
+    } else {
+      for (int i = 0; i < last; ++i)
+        digits_[i] = (digits_[i + block_shift] >> bit_shift) |
+                     (digits_[i + block_shift + 1] << carry_shift);
+      digits_[last] = digits_[last + block_shift] >> bit_shift;
     }
+
+    for (int i = last + 1; i < num_blocks; ++i)
+      digits_[i] = 0;
+
     return *this;
   }
 
@@ -106,10 +134,14 @@ class UInt {
 
   /** 0-based index of the least significant clear (0) bit, or -1 if all bits set. */
   int least_clear_index() const {
-    for (int i = 0; i < num_blocks; ++i) {
+    for (int i = 0; i < num_blocks - 1; ++i) {
       if (digits_[i] != UINT64_MAX) return i * 64 + __builtin_ctzll(~digits_[i]);
     }
-    return -1;
+    // mask top block to only consider valid bits
+    constexpr int top_bits = N & 63;
+    constexpr uint64_t top_mask = (top_bits == 0) ? UINT64_MAX : ((1ULL << top_bits) - 1);
+    uint64_t top = ~digits_[num_blocks - 1] & top_mask;
+    return top ? (num_blocks - 1) * 64 + __builtin_ctzll(top) : -1;
   }
 
   /** Fills indicesArray with 0-based indices of all clear (0) bits in [0, max_bit); returns count. */
@@ -118,6 +150,12 @@ class UInt {
     for (int i = 0; i < num_blocks && i * 64 < max_bit; ++i) {
       int block_start = i * 64;
       uint64_t clear_bits = ~digits_[i];
+      // clamp to valid bits in top block
+      if (i == num_blocks - 1) {
+        constexpr int top_bits = N & 63;
+        constexpr uint64_t top_mask = (top_bits == 0) ? UINT64_MAX : ((1ULL << top_bits) - 1);
+        clear_bits &= top_mask;
+      }
       int max_j = (block_start + 64 <= max_bit) ? 64 : (max_bit - block_start);
       while (clear_bits != 0) {
         int j = __builtin_ctzll(clear_bits);
@@ -130,9 +168,9 @@ class UInt {
   }
 
   explicit operator bool() const {
-    for (int i = 0; i < num_blocks; ++i)
-      if (digits_[i]) return true;
-    return false;
+    uint64_t acc = 0;
+    for (int i = 0; i < num_blocks; ++i) acc |= digits_[i];
+    return acc != 0;
   }
 
   bool operator==(const UInt& o) const {
@@ -140,6 +178,7 @@ class UInt {
       if (digits_[i] != o.digits_[i]) return false;
     return true;
   }
+
   bool operator!=(const UInt& o) const { return !(*this == o); }
 
   const std::array<uint64_t, num_blocks>& data() const { return digits_; }
